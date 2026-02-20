@@ -19,7 +19,7 @@ def normalize_code(code: str) -> str:
     return re.sub(r'\s+', '', code.strip().upper())
 
 
-def parse_transcript(uploaded_file) -> pd.DataFrame:
+def parse_transcript(uploaded_file) -> tuple:
     """
     Yüklenen transkript PDF dosyasını okuyarak ders bilgilerini çıkarır.
 
@@ -33,7 +33,7 @@ def parse_transcript(uploaded_file) -> pd.DataFrame:
         uploaded_file: Streamlit file_uploader'dan gelen dosya objesi veya dosya yolu
 
     Returns:
-        pd.DataFrame: Ders_Kodu, Ders_Adi, AKTS, Harf_Notu, Basarisiz, Donem sütunları
+        tuple: (pd.DataFrame, float) - Derslerin tablosu ve PDF'ten okunan AGNO
     """
     # PDF dosyasını oku
     if hasattr(uploaded_file, 'read'):
@@ -44,9 +44,13 @@ def parse_transcript(uploaded_file) -> pd.DataFrame:
         pdf = pdfplumber.open(uploaded_file)
 
     all_courses = []
+    parsed_agno = 0.0
 
     # Dönem algılama regex'i: "2022-2023 Güz" veya "2025 - 2026 Bahar"
     semester_pattern = re.compile(r'(20\d{2}\s*[-–]\s*20\d{2}\s+(?:Güz|Bahar|G[üu]z|Bahar))', re.IGNORECASE)
+    
+    # AGNO algılama regex'i
+    agno_pattern = re.compile(r'AGNO\s+(?:::\s*)?(\d+[.,]\d+)', re.IGNORECASE)
 
     # Ders satırı regex'i:
     # DERSKODU DERSADI KREDİ AKTS PUAN HARFNOTU
@@ -62,6 +66,13 @@ def parse_transcript(uploaded_file) -> pd.DataFrame:
 
     # Tüm sayfaları ve tabloları tara
     for page in pdf.pages:
+        # AGNO parsing from raw text
+        text = page.extract_text()
+        if text:
+            matches = agno_pattern.findall(text)
+            if matches:
+                parsed_agno = float(matches[-1].replace(',', '.'))
+                
         tables = page.extract_tables()
 
         for table in tables:
@@ -132,7 +143,7 @@ def parse_transcript(uploaded_file) -> pd.DataFrame:
     pdf.close()
 
     if not all_courses:
-        return pd.DataFrame(columns=['Ders_Kodu', 'Ders_Adi', 'AKTS', 'Harf_Notu', 'Basarisiz', 'Donem'])
+        return pd.DataFrame(columns=['Ders_Kodu', 'Ders_Adi', 'AKTS', 'Harf_Notu', 'Basarisiz', 'Donem']), parsed_agno
 
     df = pd.DataFrame(all_courses)
 
@@ -153,4 +164,4 @@ def parse_transcript(uploaded_file) -> pd.DataFrame:
     # Geçici kolonu sil
     df = df.drop(columns=['Base_Kodu'])
 
-    return df
+    return df, parsed_agno

@@ -378,7 +378,7 @@ def main():
 
     # ===== TRANSKRİPT İŞLEME =====
     with st.spinner("📊 Transkript analiz ediliyor..."):
-        transkript_df = parse_transcript(uploaded_file)
+        transkript_df, parsed_agno = parse_transcript(uploaded_file)
 
     if transkript_df.empty:
         st.error("❌ Transkriptten ders verisi çıkarılamadı. Lütfen PDF formatını kontrol edin.")
@@ -387,7 +387,7 @@ def main():
     # ===== EŞLEŞTİRME =====
     with st.spinner("🔍 Dersler eşleştiriliyor..."):
         results = match_courses(mufredat_df, transkript_df)
-        summary = generate_summary(results, transkript_df)
+        summary = generate_summary(results, transkript_df, parsed_agno)
 
     # ===== ÖZET KARTLARI =====
     st.markdown("### 📊 Genel Durum")

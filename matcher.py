@@ -297,7 +297,7 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
     return results
 
 
-def generate_summary(results: list, transkript_df: pd.DataFrame) -> dict:
+def generate_summary(results: list, transkript_df: pd.DataFrame, parsed_agno: float = 0.0) -> dict:
     """
     Eşleştirme sonuçlarından özet istatistikleri üretir.
 
@@ -316,21 +316,24 @@ def generate_summary(results: list, transkript_df: pd.DataFrame) -> dict:
     devam_eden = sum(1 for r in results if r['Durum'] == 'Devam Ediyor')
     basarili = sum(1 for r in results if r['Durum'] == 'Başarılı')
 
-    # AGNO hesaplama (transkriptten)
-    katsayi_map = {
-        'AA': 4.0, 'BA': 3.5, 'BB': 3.0, 'CB': 2.5, 'CC': 2.0,
-        'DC': 1.5, 'DD': 1.5, 'FD': 1.0, 'FF': 0.0, 'BL': None, 'DZ': 0.0
-    }
-    
-    toplam_puan = 0
-    toplam_akts_hesap = 0
-    for _, row in transkript_df.iterrows():
-        notu = row['Harf_Notu']
-        if notu in katsayi_map and katsayi_map[notu] is not None:
-            toplam_puan += katsayi_map[notu] * row['AKTS']
-            toplam_akts_hesap += row['AKTS']
-    
-    agno = round(toplam_puan / toplam_akts_hesap, 2) if toplam_akts_hesap > 0 else 0.0
+    if parsed_agno > 0:
+        agno = parsed_agno
+    else:
+        # AGNO hesaplama (transkriptten)
+        katsayi_map = {
+            'AA': 4.0, 'BA': 3.5, 'BB': 3.0, 'CB': 2.5, 'CC': 2.0,
+            'DC': 1.5, 'DD': 1.5, 'FD': 1.0, 'FF': 0.0, 'BL': None, 'DZ': 0.0
+        }
+        
+        toplam_puan = 0
+        toplam_akts_hesap = 0
+        for _, row in transkript_df.iterrows():
+            notu = row['Harf_Notu']
+            if notu in katsayi_map and katsayi_map[notu] is not None:
+                toplam_puan += katsayi_map[notu] * row['AKTS']
+                toplam_akts_hesap += row['AKTS']
+        
+        agno = round(toplam_puan / toplam_akts_hesap, 2) if toplam_akts_hesap > 0 else 0.0
 
     # Mezuniyet durumu
     if eksik == 0 and basarisiz == 0 and devam_eden == 0 and supheli == 0:
