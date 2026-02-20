@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE and Project Files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# App specific debug files
+debug_output.txt
+debug_output_full.txt
+debug_output_utf8.txt
+debug_logic_output.txt
+reproduction_output.txt
+
+# Sensitive files
+*.pdf

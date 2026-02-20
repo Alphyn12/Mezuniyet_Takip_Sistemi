@@ -1,0 +1,6 @@
+[theme]
+base="dark"
+primaryColor="#007bff"
+
+[client]
+toolbarMode="viewer"
