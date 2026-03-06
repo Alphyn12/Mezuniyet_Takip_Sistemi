@@ -25,3 +25,12 @@ reproduction_output.txt
 
 # Sensitive files
 *.pdf
+*dump*.txt
+diff.txt
+
+# Debug and reproduction scripts
+debug_*.py
+reproduce_*.py
+test_parser.py
+transkript_*.txt
+transkript_*.pdf

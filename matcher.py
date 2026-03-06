@@ -27,6 +27,8 @@ def is_english_course(ders_kodu: str) -> bool:
     code = normalize_code(ders_kodu)
     if code in EXTRA_ENGLISH_CODES:
         return True
+    if code.startswith('MEC') or code.startswith('MTH'):
+        return True
     # Kodun son karakteri 'E' ve ondan önceki karakter rakam ise (ör: MMB312E)
     if len(code) >= 4 and code[-1] == 'E' and code[-2].isdigit():
         return True
@@ -41,7 +43,7 @@ def is_elective_slot(ders_kodu: str) -> bool:
     return ('XX' in code) or ('UNI-SEC' in code)
 
 
-def get_elective_category(ders_kodu: str) -> str:
+def get_elective_category(ders_kodu: str, ders_adi: str = "") -> str:
     """Seçmeli ders kodunun kategorisini belirler.
     Döndürdükleri: 'mekanik_tasarim', 'isil_tasarim', 'bolum_mekanik',
     'bolum_termo', 'bolum_konstruksiyon', 'universite', 'bilinmiyor'
@@ -62,7 +64,13 @@ def get_elective_category(ders_kodu: str) -> str:
 
     # 2022/2024 müfredatı: 30xx, 41xx, 42xx, 43xx
     if re.match(r'(MMB|MAK|MEC)30', code):
+        name_lower = ders_adi.lower()
+        if 'ısıl' in name_lower or 'isil' in name_lower or 'isıl' in name_lower:
+            return 'isil_tasarim'
+        elif 'mekanik' in name_lower:
+            return 'mekanik_tasarim'
         return 'tasarim_secmeli'  # Hem mekanik hem ısıl olabilir
+
     if re.match(r'(MMB|MAK|MEC)41', code):
         return 'bolum_mekanik'
     if re.match(r'(MMB|MAK|MEC)42', code):
@@ -94,8 +102,10 @@ def classify_transcript_elective(ders_kodu: str) -> str:
         return 'bolum_konstruksiyon'
 
     # 2022/2024 format: 30xx serisi (5-6. YY), 41xx/42xx/43xx serisi (7-8. YY)
-    if re.match(r'(MMB|MAK|MEC)30\d{2}', code):
-        return 'tasarim_secmeli'
+    match_30xx = re.match(r'(MMB|MAK|MEC)30(\d{2})[A-Za-z]?', code)
+    if match_30xx:
+        num = int(match_30xx.group(2))
+        return 'isil_tasarim' if num % 2 == 1 else 'mekanik_tasarim'
     if re.match(r'(MMB|MAK|MEC)41\d{2}', code):
         return 'bolum_mekanik'
     if re.match(r'(MMB|MAK|MEC)42\d{2}', code):
@@ -157,14 +167,15 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
             'Basarisiz': False,
             'Ikon': '❌',
             'Ingilizce': is_english_course(muf_code),
-            '_matched': False # temporary flag
+            '_matched': False, # temporary flag
+            '_tr_idx': None
         })
 
     # PASS 1: SEÇMELİ DERS EŞLEŞTİRME
     for result in results:
         muf_code = result['Mufredat_Kodu']
         if is_elective_slot(muf_code):
-            cat = get_elective_category(muf_code)
+            cat = get_elective_category(muf_code, result['Mufredat_Adi'])
             search_cats = [cat]
             if cat == 'tasarim_secmeli':
                 search_cats = ['tasarim_secmeli', 'mekanik_tasarim', 'isil_tasarim']
@@ -175,32 +186,48 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
 
             for search_cat in search_cats:
                 if search_cat in elective_pool:
-                    for tr_idx in list(elective_pool[search_cat]):
-                        if tr_idx not in used_transcript_indices:
-                            tr_row = transkript_df.loc[tr_idx]
-                            result['Transkript_Kodu'] = tr_row['Ders_Kodu']
-                            result['Transkript_Adi'] = tr_row['Ders_Adi']
-                            result['Transkript_Notu'] = tr_row['Harf_Notu']
-                            result['Transkript_AKTS'] = tr_row['AKTS']
-                            result['Basarisiz'] = tr_row['Basarisiz']
-                            result['Eslesme_Skoru'] = 100
-                            result['_matched'] = True
+                    best_tr_idx = None
+                    # 8. Yarıyıl slotları için öncelikle "Devam Ediyor" olanları tercih et (kullanıcı beklentisi)
+                    if str(result['Donem']) == '8':
+                        for tr_idx in list(elective_pool[search_cat]):
+                            if tr_idx not in used_transcript_indices:
+                                if transkript_df.loc[tr_idx, 'Harf_Notu'] == 'Devam Ediyor':
+                                    best_tr_idx = tr_idx
+                                    break
+                    
+                    # Eğer "Devam Ediyor" bulunamadıysa veya 8. yarıyıl değilse, ilk bulduğunu al
+                    if best_tr_idx is None:
+                        for tr_idx in list(elective_pool[search_cat]):
+                            if tr_idx not in used_transcript_indices:
+                                best_tr_idx = tr_idx
+                                break
+                    
+                    if best_tr_idx is not None:
+                        tr_row = transkript_df.loc[best_tr_idx]
+                        result['Transkript_Kodu'] = tr_row['Ders_Kodu']
+                        result['Transkript_Adi'] = tr_row['Ders_Adi']
+                        result['Transkript_Notu'] = tr_row['Harf_Notu']
+                        result['Transkript_AKTS'] = tr_row['AKTS']
+                        result['Basarisiz'] = tr_row['Basarisiz']
+                        result['Eslesme_Skoru'] = 100
+                        result['_matched'] = True
+                        result['_tr_idx'] = best_tr_idx
 
-                            if tr_row['Harf_Notu'] == 'Devam Ediyor':
-                                result['Durum'] = 'Devam Ediyor'
-                                result['Ikon'] = '🔵'
-                            elif tr_row['Basarisiz']:
-                                result['Durum'] = 'Başarısız'
-                                result['Ikon'] = '❌'
-                            else:
-                                result['Durum'] = 'Başarılı'
-                                result['Ikon'] = '✅'
+                        if tr_row['Harf_Notu'] == 'Devam Ediyor':
+                            result['Durum'] = 'Devam Ediyor'
+                            result['Ikon'] = '🔵'
+                        elif tr_row['Basarisiz']:
+                            result['Durum'] = 'Başarısız'
+                            result['Ikon'] = '❌'
+                        else:
+                            result['Durum'] = 'Başarılı'
+                            result['Ikon'] = '✅'
 
-                            used_transcript_indices.add(tr_idx)
-                            elective_pool[search_cat].remove(tr_idx)
-                            if is_english_course(tr_row['Ders_Kodu']):
-                                result['Ingilizce'] = True
-                            break
+                        used_transcript_indices.add(best_tr_idx)
+                        elective_pool[search_cat].remove(best_tr_idx)
+                        if is_english_course(tr_row['Ders_Kodu']):
+                            result['Ingilizce'] = True
+                        break
                 if result['_matched']:
                     break
 
@@ -213,10 +240,22 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
         norm_muf_code = normalize_code(muf_code)
         
         candidate_codes = [norm_muf_code]
-        if norm_muf_code.startswith('MMB'):
-            candidate_codes.append(norm_muf_code.replace('MMB', 'MAK'))
-        elif norm_muf_code.startswith('MAK'):
-            candidate_codes.append(norm_muf_code.replace('MAK', 'MMB'))
+        if norm_muf_code.endswith('E'):
+            candidate_codes.append(norm_muf_code[:-1])
+        else:
+            candidate_codes.append(norm_muf_code + 'E')
+            
+        temp_codes = candidate_codes.copy()
+        for cand in temp_codes:
+            if cand.startswith('MMB'):
+                candidate_codes.append(cand.replace('MMB', 'MAK'))
+                candidate_codes.append(cand.replace('MMB', 'MEC'))
+            elif cand.startswith('MAK'):
+                candidate_codes.append(cand.replace('MAK', 'MMB'))
+                candidate_codes.append(cand.replace('MAK', 'MEC'))
+            elif cand.startswith('MEC'):
+                candidate_codes.append(cand.replace('MEC', 'MMB'))
+                candidate_codes.append(cand.replace('MEC', 'MAK'))
             
         for cand in candidate_codes:
             if cand in tr_codes:
@@ -230,6 +269,10 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
                     result['Basarisiz'] = tr_row['Basarisiz']
                     result['Eslesme_Skoru'] = 100
                     result['_matched'] = True
+                    result['_tr_idx'] = tr_idx
+                    
+                    if is_english_course(tr_row['Ders_Kodu']):
+                        result['Ingilizce'] = True
                     
                     if tr_row['Harf_Notu'] == 'Devam Ediyor':
                         result['Durum'] = 'Devam Ediyor'
@@ -273,6 +316,10 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
                     result['Basarisiz'] = tr_row['Basarisiz']
                     result['Eslesme_Skoru'] = score
                     result['_matched'] = True
+                    result['_tr_idx'] = actual_idx
+                    
+                    if is_english_course(tr_row['Ders_Kodu']):
+                        result['Ingilizce'] = True
                     
                     if score >= 85:
                         if tr_row['Harf_Notu'] == 'Devam Ediyor':
@@ -297,7 +344,7 @@ def match_courses(mufredat_df: pd.DataFrame, transkript_df: pd.DataFrame) -> lis
     return results
 
 
-def generate_summary(results: list, transkript_df: pd.DataFrame) -> dict:
+def generate_summary(results: list, transkript_df: pd.DataFrame, parsed_agno: float = 0.0) -> dict:
     """
     Eşleştirme sonuçlarından özet istatistikleri üretir.
 
@@ -316,21 +363,24 @@ def generate_summary(results: list, transkript_df: pd.DataFrame) -> dict:
     devam_eden = sum(1 for r in results if r['Durum'] == 'Devam Ediyor')
     basarili = sum(1 for r in results if r['Durum'] == 'Başarılı')
 
-    # AGNO hesaplama (transkriptten)
-    katsayi_map = {
-        'AA': 4.0, 'BA': 3.5, 'BB': 3.0, 'CB': 2.5, 'CC': 2.0,
-        'DC': 1.5, 'DD': 1.5, 'FD': 1.0, 'FF': 0.0, 'BL': None, 'DZ': 0.0
-    }
-    
-    toplam_puan = 0
-    toplam_akts_hesap = 0
-    for _, row in transkript_df.iterrows():
-        notu = row['Harf_Notu']
-        if notu in katsayi_map and katsayi_map[notu] is not None:
-            toplam_puan += katsayi_map[notu] * row['AKTS']
-            toplam_akts_hesap += row['AKTS']
-    
-    agno = round(toplam_puan / toplam_akts_hesap, 2) if toplam_akts_hesap > 0 else 0.0
+    if parsed_agno > 0:
+        agno = parsed_agno
+    else:
+        # AGNO hesaplama (transkriptten)
+        katsayi_map = {
+            'AA': 4.0, 'BA': 3.5, 'BB': 3.0, 'CB': 2.5, 'CC': 2.0,
+            'DC': 1.5, 'DD': 1.5, 'FD': 1.0, 'FF': 0.0, 'BL': None, 'DZ': 0.0
+        }
+        
+        toplam_puan = 0
+        toplam_akts_hesap = 0
+        for _, row in transkript_df.iterrows():
+            notu = row['Harf_Notu']
+            if notu in katsayi_map and katsayi_map[notu] is not None:
+                toplam_puan += katsayi_map[notu] * row['AKTS']
+                toplam_akts_hesap += row['AKTS']
+        
+        agno = round(toplam_puan / toplam_akts_hesap, 2) if toplam_akts_hesap > 0 else 0.0
 
     # Mezuniyet durumu
     if eksik == 0 and basarisiz == 0 and devam_eden == 0 and supheli == 0:
@@ -366,6 +416,20 @@ def generate_summary(results: list, transkript_df: pd.DataFrame) -> dict:
     if not ingilizce_yeterli and 'Sağlanıyor' in mezuniyet:
         mezuniyet = f"❌ İngilizce Ders Oranı Yetersiz (%{ingilizce_oran} < %30)"
 
+    # Fazladan (Müfredat Dışı) alınan dersler
+    kullanilan_idx_seti = set(r['_tr_idx'] for r in results if r.get('_tr_idx') is not None)
+    fazladan_dersler = []
+    
+    for idx, row in transkript_df.iterrows():
+        if idx not in kullanilan_idx_seti:
+            fazladan_dersler.append({
+                'Donem': row['Donem'],
+                'Ders_Kodu': row['Ders_Kodu'],
+                'Ders_Adi': row['Ders_Adi'],
+                'AKTS': float(row['AKTS']),
+                'Harf_Notu': row['Harf_Notu']
+            })
+
     return {
         'toplam_mufredat_akts': toplam_mufredat_akts,
         'basarili_akts': basarili_akts,
@@ -373,6 +437,8 @@ def generate_summary(results: list, transkript_df: pd.DataFrame) -> dict:
         'basarisiz_ders_sayisi': basarisiz,
         'supheli_sayisi': supheli,
         'devam_eden_sayisi': devam_eden,
+        'fazladan_ders_sayisi': len(fazladan_dersler),
+        'fazladan_dersler': fazladan_dersler,
         'basarili_ders_sayisi': basarili,
         'agno': agno,
         'mezuniyet_durumu': mezuniyet,

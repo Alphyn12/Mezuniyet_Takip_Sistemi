@@ -378,7 +378,7 @@ def main():
 
     # ===== TRANSKRİPT İŞLEME =====
     with st.spinner("📊 Transkript analiz ediliyor..."):
-        transkript_df = parse_transcript(uploaded_file)
+        transkript_df, parsed_agno = parse_transcript(uploaded_file)
 
     if transkript_df.empty:
         st.error("❌ Transkriptten ders verisi çıkarılamadı. Lütfen PDF formatını kontrol edin.")
@@ -387,7 +387,7 @@ def main():
     # ===== EŞLEŞTİRME =====
     with st.spinner("🔍 Dersler eşleştiriliyor..."):
         results = match_courses(mufredat_df, transkript_df)
-        summary = generate_summary(results, transkript_df)
+        summary = generate_summary(results, transkript_df, parsed_agno)
 
     # ===== ÖZET KARTLARI =====
     st.markdown("### 📊 Genel Durum")
@@ -534,11 +534,11 @@ def main():
     basarisiz_dersler = [r for r in results if r['Durum'] == 'Başarısız']
     supheli_dersler = [r for r in results if r['Durum'] == 'Şüpheli Eşleşme']
 
-    if eksik_dersler or basarisiz_dersler or supheli_dersler:
+    if eksik_dersler or basarisiz_dersler or supheli_dersler or summary.get('fazladan_dersler'):
         st.markdown("---")
-        st.markdown("### ⚠️ Dikkat Gerektiren Dersler")
+        st.markdown("### ⚠️ Dikkat Gerektiren / Fazla Dersler")
 
-        tab1, tab2, tab3 = st.tabs(["❌ Eksik Dersler", "🔴 Başarısız Dersler", "⚠️ Şüpheli Eşleşmeler"])
+        tab1, tab2, tab3, tab4 = st.tabs(["❌ Eksik Dersler", "🔴 Başarısız Dersler", "⚠️ Şüpheli Eşleşmeler", "➕ Fazladan Alınan Dersler"])
 
         with tab1:
             if eksik_dersler:
@@ -564,6 +564,14 @@ def main():
                     )
             else:
                 st.success("Şüpheli eşleşme bulunmuyor! ✅")
+
+        with tab4:
+            if summary.get('fazladan_dersler'):
+                st.info("Bu dersler transkriptte yer almasına rağmen müfredatta eşleşecek uygun bir yuva (slot) kalmadığı için dışarıda kalmıştır. Seçmeli ders kotanızı doldurduğunuz (veya muafiyetiniz olduğu) için bu derslere artık ihtiyaç kalmamış olabilir.")
+                for d in summary['fazladan_dersler']:
+                    st.markdown(f"- **{d['Ders_Kodu']}** — {d['Ders_Adi']} ({d['AKTS']} AKTS) — _{d['Donem']}_ — Not: **{d['Harf_Notu']}**")
+            else:
+                st.success("Fazladan alınmış (müfredat dışı) ders bulunmuyor! ✅")
 
     # ===== TRANSKRİPT HAM VERİ =====
     st.markdown("<br><br><br>", unsafe_allow_html=True)  # Araya boşluk ekledik
