@@ -114,7 +114,8 @@ def classify_transcript_elective(ders_kodu: str) -> str:
         return 'bolum_konstruksiyon'
     
     # Alan dışı seçmeli: Farklı bölüm kodları (CEK, MAD, vb.)
-    if not re.match(r'(MMB|MAK|MEC|MED|MTH|MAT|FİZ|KİM|BİL|ZTD|ZAI|MUH|HZD)', code):
+    # Not: MMB, MAK gibi temel kodlar veya ZTD, ZAI, MK (Hazırlık) gibi ortak dersler Alan Dışı Seçmeli değildir.
+    if not re.match(r'(MMB|MAK|MEC|MED|MTH|MAT|FİZ|KİM|BİL|ZTD|ZAI|MUH|HZD|MK)', code):
         return 'universite'
     
     return 'bilinmiyor'
